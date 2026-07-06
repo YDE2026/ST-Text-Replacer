@@ -330,6 +330,19 @@ function bindEvents() {
     eventSource.on(event_types.MESSAGE_SWIPED, handleMessageRender);
 
     eventSource.on(event_types.CHAT_CHANGED, () => {
+        // 清理由于切换角色产生的旧面板数据缓存
+        $('#st_tr_cards_container').empty();
+        $('#st_tr_current_message_id').removeData('mesid').text('未选择消息');
+        $('#st_tr_save_cards_btn').prop('disabled', true);
+        
+        // 恢复默认的空状态提示
+        $('#st_tr_cards_container').html(`
+            <div style="text-align: center; color: var(--SmartThemeBodyColor); opacity: 0.5; margin-top: 50px;">
+                <i class="fa-solid fa-ghost fa-3x" style="margin-bottom: 10px;"></i>
+                <p>暂无暗线数据。<br>请在聊天正文中寻找包含暗线表格的消息，或在设置中打开“启用文本替换”并让AI生成。</p>
+            </div>
+        `);
+
         setTimeout(() => {
             $('.mes').each((_, el) => {
                 const messageId = $(el).attr('mesid');
@@ -337,6 +350,36 @@ function bindEvents() {
                     processMessageDOM(messageId);
                 }
             });
+            
+            // 切换聊天后，如果 Drawer 是开着的，主动尝试拉取新聊天的最新暗线
+            if ($('#st_tr_drawer_icon').hasClass('openIcon')) {
+                const settings = getSettings();
+                if (!settings.enabled || !settings.targetTag) return;
+                
+                const context = getContext();
+                const chat = context.chat;
+                if (!chat || chat.length === 0) return;
+                
+                let lastMessageId = -1;
+                let lastTagContent = null;
+                
+                for (let i = chat.length - 1; i >= 0; i--) {
+                    const msg = chat[i];
+                    if (msg && msg.mes) {
+                        const extracted = extractContentByTag(msg.mes, settings.targetTag);
+                        if (extracted) {
+                            lastMessageId = i;
+                            lastTagContent = extracted;
+                            break;
+                        }
+                    }
+                }
+                
+                if (lastMessageId !== -1 && lastTagContent) {
+                    renderCardsToDrawer(lastMessageId, lastTagContent);
+                    bindDrawerCardsSave();
+                }
+            }
         }, 500);
     });
 
@@ -383,12 +426,14 @@ function bindGlobalButtons() {
             }
             
             if (lastMessageId !== -1 && lastTagContent) {
-                // 如果当前没有在编辑，或者正在编辑但面板内容为空，则自动加载最新的
-                if ($('#st_tr_cards_container').children().length === 0 || 
-                    $('#st_tr_current_message_id').data('mesid') === undefined) {
-                    renderCardsToDrawer(lastMessageId, lastTagContent);
-                    bindDrawerCardsSave();
-                }
+                // 判断：如果是空面板（看到幽灵图标），或者是别的角色留下的旧消息 ID（可能数组越界或不匹配）
+                const currentEditedId = $('#st_tr_current_message_id').data('mesid');
+                const isPanelEmpty = $('#st_tr_cards_container .fa-ghost').length > 0;
+                
+                // 为了保险，每次点开都强制刷新为当前角色最新的一条，除非你刚才已经手动点过某条历史消息的"编辑"
+                // 这里我们假设只要 Drawer 被关闭过，再打开就默认看最新的
+                renderCardsToDrawer(lastMessageId, lastTagContent);
+                bindDrawerCardsSave();
             }
         }
     });
