@@ -1,0 +1,68 @@
+.ST-Text-Replacer-container {
+    padding: 10px;
+}
+
+.st_tr_settings_group {
+    margin-top: 15px;
+    padding: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 5px;
+    background: rgba(0, 0, 0, 0.1);
+}
+
+.st_tr_settings_group h4 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    font-size: 14px;
+    color: var(--SmartThemeBodyColor);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 5px;
+}
+
+#st_tr_drawer_icon {
+    color: #4CAF50; /* Green to distinguish */
+}
+
+/* 强制重写保存按钮样式，对抗 ST 原生类名的污染 */
+#st_tr_save_cards_btn {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 8px !important;
+    width: auto !important;
+    min-width: 150px !important;
+    white-space: nowrap !important;
+    padding: 8px 20px !important;
+}
+
+/* ================= 移动端/窄屏端表格防挤压优化 ================= */
+
+/* 1. 聊天正文中的暗线表格 */
+.st-tr-content {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch; /* iOS 顺滑滚动 */
+    overscroll-behavior-x: contain; /* 阻止横向滚动边缘触发浏览器前进后退手势 */
+}
+
+/* 强制表格保持最小宽度，不许把字挤成一竖列 */
+.st-tr-content table {
+    min-width: 600px !important; /* 根据需要调整，保证4列表格不会太挤 */
+    width: 100% !important;
+}
+
+.st-tr-content th, 
+.st-tr-content td {
+    min-width: 100px;
+    word-break: break-word;
+}
+
+/* 2. 右侧 Drawer 抽屉里的编辑表格 */
+.st-tr-edit-table {
+    min-width: 650px !important; /* 强制拉宽，配合外层的 overflow-x: auto 形成滚动 */
+}
+
+.st-tr-edit-table th, 
+.st-tr-edit-table td {
+    min-width: 120px;
+}

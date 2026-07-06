@@ -1,0 +1,97 @@
+<div class="drawer-content-inner ST-Text-Replacer-container">
+    <!-- 顶部导航栏，实现面板切换 -->
+    <div class="st-tr-nav-tabs" style="display: flex; gap: 10px; margin-bottom: 15px; border-bottom: 1px solid var(--SmartThemeBorderColor); padding-bottom: 10px;">
+        <button id="st_tr_tab_main" class="st-tr-tab-btn active" style="background: none; border: none; color: var(--SmartThemeBodyColor); font-size: 1.1em; font-weight: bold; cursor: pointer; padding: 5px 10px; border-bottom: 2px solid var(--SmartThemeQuoteColor);">
+            <i class="fa-solid fa-list-check"></i> 暗线面板
+        </button>
+        <button id="st_tr_tab_settings" class="st-tr-tab-btn" style="background: none; border: none; color: var(--SmartThemeBodyColor); font-size: 1.1em; font-weight: bold; cursor: pointer; padding: 5px 10px; opacity: 0.6;">
+            <i class="fa-solid fa-gear"></i> 插件设置
+        </button>
+    </div>
+
+    <!-- 面板1：暗线管理面板 -->
+    <div id="st_tr_panel_main" class="st-tr-panel active" style="display: block;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h4 style="margin: 0;">当前消息暗线编辑</h4>
+            <div id="st_tr_current_message_id" style="font-size: 0.8em; opacity: 0.7;">未选择消息</div>
+        </div>
+
+        <!-- 这里是卡片渲染容器 -->
+        <div id="st_tr_cards_container" style="display: flex; flex-direction: column; gap: 15px; min-height: 200px;">
+            <div style="text-align: center; color: var(--SmartThemeBodyColor); opacity: 0.5; margin-top: 50px;">
+                <i class="fa-solid fa-ghost fa-3x" style="margin-bottom: 10px;"></i>
+                <p>暂无暗线数据。<br>请在聊天正文中寻找包含暗线表格的消息，或在设置中打开“启用文本替换”并让AI生成。</p>
+            </div>
+        </div>
+        
+        <div style="display: flex; justify-content: flex-end; margin-top: 20px; border-top: 1px dashed var(--SmartThemeBorderColor); padding-top: 15px;">
+             <button id="st_tr_save_cards_btn" class="menu_button interactable" style="background-color: var(--SmartThemeQuoteColor); color: var(--SmartThemeBodyColor); font-weight: bold; padding: 8px 20px; border-radius: 5px; white-space: nowrap; flex-direction: row; display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: fit-content; max-width: none;" disabled>
+                <i class="fa-solid fa-floppy-disk"></i> <span>保存修改并应用</span>
+             </button>
+        </div>
+    </div>
+
+    <!-- 面板2：偏好设置面板 -->
+    <div id="st_tr_panel_settings" class="st-tr-panel" style="display: none;">
+        <div class="checkbox_label">
+            <input type="checkbox" id="st_tr_enabled" name="st_tr_enabled">
+            <label for="st_tr_enabled">启用文本替换 (暗线推演)</label>
+        </div>
+        
+        <div class="st_tr_settings_group" style="margin-top: 15px; border: 1px solid var(--SmartThemeBorderColor); padding: 10px; border-radius: 8px;">
+            <h4>基础设置</h4>
+            <div class="text_pole">
+                <label for="st_tr_target_tag">目标标签 (包裹暗线表格的标签，例如 PHT)</label>
+                <input type="text" id="st_tr_target_tag" class="text_pole" placeholder="例如 PHT">
+            </div>
+            <div class="text_pole">
+                <label for="st_tr_context_depth">重Roll时携带的上下文层数</label>
+                <input type="number" id="st_tr_context_depth" class="text_pole" min="0" max="50" step="1" value="5">
+            </div>
+        </div>
+        
+        <div class="st_tr_settings_group" style="margin-top: 15px; border: 1px solid var(--SmartThemeBorderColor); padding: 10px; border-radius: 8px;">
+            <h4>API 设置 (兼容 OpenAI)</h4>
+            <div class="text_pole">
+                <label for="st_tr_api_url">API URL</label>
+                <input type="text" id="st_tr_api_url" class="text_pole" placeholder="https://api.openai.com/v1">
+            </div>
+            <div class="text_pole">
+                <label for="st_tr_api_key">API Key</label>
+                <input type="password" id="st_tr_api_key" class="text_pole" placeholder="sk-...">
+            </div>
+            <div class="text_pole flex-container flexGap5">
+                <div style="flex-grow: 1;">
+                    <label for="st_tr_model_name">模型名称</label>
+                    <input type="text" id="st_tr_model_name" class="text_pole" placeholder="gpt-3.5-turbo">
+                </div>
+                <div style="display: flex; align-items: flex-end;">
+                    <div id="st_tr_fetch_models" class="menu_button menu_button_icon interactable" title="获取模型列表">
+                        <i class="fa-solid fa-arrows-rotate"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="text_pole" id="st_tr_model_select_container" style="display: none;">
+                <label for="st_tr_model_select">选择模型</label>
+                <select id="st_tr_model_select" class="text_pole"></select>
+            </div>
+        </div>
+        
+        <div class="st_tr_settings_group" style="margin-top: 15px; border: 1px solid var(--SmartThemeBorderColor); padding: 10px; border-radius: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 5px; margin-bottom: 10px;">
+                <h4 style="margin: 0; border-bottom: none; padding-bottom: 0;">提示词设置</h4>
+                <div id="st_tr_reset_prompts" class="menu_button interactable" style="padding: 2px 8px; font-size: 0.8em; margin: 0;" title="将提示词恢复为默认状态">
+                    <i class="fa-solid fa-rotate-left"></i> 恢复默认
+                </div>
+            </div>
+            <div class="text_pole">
+                <label for="st_tr_system_prompt">系统提示词 (System Prompt)</label>
+                <textarea id="st_tr_system_prompt" class="text_pole" rows="6" placeholder="你是一个暗线推演助手..."></textarea>
+            </div>
+            <div class="text_pole">
+                <label for="st_tr_user_prompt">重Roll请求提示词 (可用 {{content}} 占位符引用旧暗线)</label>
+                <textarea id="st_tr_user_prompt" class="text_pole" rows="4" placeholder="请重新推演以下NPC暗线表格：\n{{content}}"></textarea>
+            </div>
+        </div>
+    </div>
+</div>
