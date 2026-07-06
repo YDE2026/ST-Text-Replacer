@@ -433,6 +433,51 @@ function bindGlobalButtons() {
         }
     });
 
+    // 监听“添加新行”按钮点击事件
+    $(document).on('click', '#st_tr_add_row_btn', (e) => {
+        e.preventDefault();
+        
+        const container = $('#st_tr_cards_container');
+        const headersStr = container.data('headers');
+        const tbody = container.find('tbody');
+        
+        if (!headersStr || tbody.length === 0) {
+            toastr.warning('当前没有可编辑的表格。');
+            return;
+        }
+        
+        const headers = JSON.parse(headersStr);
+        // 获取当前行数作为新行的 index
+        const newRowIndex = tbody.find('tr').length;
+        
+        let newRowHtml = `<tr class="st-tr-edit-card" data-rowindex="${newRowIndex}">`;
+        
+        headers.forEach((header, colIndex) => {
+            const isTextarea = header.includes('活动') || header.includes('动态') || header.includes('内容');
+            const defaultValue = '待填充';
+            
+            newRowHtml += `<td style="padding: 5px; border: 1px solid var(--SmartThemeBorderColor); vertical-align: top;">`;
+            
+            if (isTextarea) {
+                newRowHtml += `<textarea class="text_pole st-tr-card-input" data-colindex="${colIndex}" style="width: 100%; height: 100%; box-sizing: border-box; resize: vertical; min-height: 60px; background: transparent; border: none; padding: 5px; color: var(--SmartThemeBodyColor);">${defaultValue}</textarea>`;
+            } else {
+                newRowHtml += `<input type="text" class="text_pole st-tr-card-input" data-colindex="${colIndex}" style="width: 100%; box-sizing: border-box; background: transparent; border: none; padding: 5px; color: var(--SmartThemeBodyColor);" value="${defaultValue}">`;
+            }
+            
+            newRowHtml += `</td>`;
+        });
+        
+        newRowHtml += `</tr>`;
+        
+        tbody.append(newRowHtml);
+        
+        // 滚动到底部
+        const scrollContainer = container.find('div[style*="overflow-x"]');
+        if (scrollContainer.length) {
+            scrollContainer.scrollTop(scrollContainer[0].scrollHeight);
+        }
+    });
+
     // 在插件侧边栏面板内部绑定“重新推演”按钮事件
     $(document).on('click', '#st_tr_drawer_reroll_btn', async (e) => {
         e.preventDefault();
