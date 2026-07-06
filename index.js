@@ -190,62 +190,29 @@ function processMessageDOM(messageId) {
     console.log(`[ST-Text-Replacer] [Debug] 原始 HTML 内容 (请务必仔细检查这里的结构):`);
     console.log(html);
     
-    // 因为 ST 渲染器不会破坏非 HTML 标签的方括号，我们可以很直接地匹配它。
-    // 为了防止 ST 产生的标签粘连，比如 <p>[PHT]<br> 这种恶心的情况，放宽首尾标签匹配。
-    const startTag = `(?:<p>\\s*)?\\[${tag}\\](?:\\s*<\\/p>)?(?:<br\\s*\\/?>)?`;
-    const endTag = `(?:<br\\s*\\/?>)?(?:<p>\\s*)?\\[\\/${tag}\\](?:\\s*<\\/p>)?`;
-    const regex = new RegExp(`(${startTag})([\\s\\S]*?)(${endTag})`, 'gi');
+    // 如果用户使用了自定义的扩展正则表达式 (比如用 Regex Extension 把 [PHT] 全部隐藏掉了)
+    // 那么在 DOM (messageElement.html()) 里面，是根本找不到 [PHT] 标签的！它已经被酒馆的扩展给过滤没了！
+    // 所以，我们不能仅仅依靠匹配 DOM 来生成绿框，我们需要检查**消息的原始文本 (msg.mes)**
     
-    console.log(`[ST-Text-Replacer] [Debug] 构造的正则表达式:`, regex);
+    const tagRegex = new RegExp(`\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\]`, 'i');
+    const match = msg.mes.match(tagRegex);
     
-    // 【终极兜底方案】如果 ST 彻底把表格和标签糊成了一团纯文本，甚至丢掉了 HTML 结构，我们提供一个无视结构的强力抓取
-    const fallbackRegex = new RegExp(`(\\[${tag}\\])([\\s\\S]*?)(\\[\\/${tag}\\])`, 'gi');
-
-    let hasMatch = false;
-    
-    // 用来生成绿框 HTML 的工厂函数
-    const buildContainerHtml = (innerContent) => {
-        return `
-        <div class="st-tr-container" data-mesid="${messageId}" style="position: relative; border: 1px dashed rgba(76, 175, 80, 0.5); padding: 15px; margin: 10px 0; border-radius: 8px; background: rgba(76, 175, 80, 0.05); box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-            <div class="st-tr-tag-label" style="position: absolute; top: -10px; left: 15px; background: var(--SmartThemeBodyColor); color: var(--SmartThemeQuoteColor); padding: 0 5px; font-size: 0.8em; font-weight: bold; border-radius: 3px; border: 1px solid rgba(76, 175, 80, 0.5);">
-                暗线内容 (${tag})
-            </div>
-            <div class="st-tr-content" style="margin-top: 5px; margin-bottom: 10px;" 
-                 ontouchstart="event.stopPropagation();" 
-                 ontouchmove="event.stopPropagation();" 
-                 ontouchend="event.stopPropagation();">
-                ${innerContent}
-            </div>
-            <div style="display: flex; justify-content: flex-end; gap: 10px;">
-                <button class="st-tr-edit-btn" style="background-color: var(--SmartThemeBlurTintColor); color: var(--SmartThemeBodyColor); border: 1px solid var(--SmartThemeBorderColor); padding: 6px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 0.9em; transition: all 0.2s;">
-                    <i class="fa-solid fa-pen-to-square"></i> 手动编辑
-                </button>
-                <button class="st-tr-reroll-btn" style="background-color: var(--SmartThemeQuoteColor); color: var(--SmartThemeBodyColor); border: 1px solid var(--SmartThemeBorderColor); padding: 6px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 0.9em; transition: all 0.2s;">
-                    <i class="fa-solid fa-dice"></i> 重新推演
-                </button>
-            </div>
-        </div>`;
-    };
-
-    let newHtml = html.replace(regex, (match, p1, innerContent, p3) => {
-        hasMatch = true;
-        console.log(`[ST-Text-Replacer] [Debug] 🎉 成功匹配到内容 (宽松模式)! 匹配长度: ${match.length}`);
-        return buildContainerHtml(innerContent);
-    });
-
-    // 如果宽松模式也失败了，尝试无视所有 HTML 结构的终极兜底模式
-    if (!hasMatch) {
-        newHtml = html.replace(fallbackRegex, (match, p1, innerContent, p3) => {
-            hasMatch = true;
-            console.log(`[ST-Text-Replacer] [Debug] ⚠️ 触发终极兜底匹配! 匹配长度: ${match.length}`);
-            return buildContainerHtml(innerContent);
-        });
+    if (!match) {
+        console.warn(`[ST-Text-Replacer] [Debug] ❌ 消息原文 msg.mes 中未找到标签 [${tag}]`);
+        return;
     }
-
-    if (hasMatch) {
-        messageElement.html(newHtml);
-    } else {
-        console.warn(`[ST-Text-Replacer] [Debug] ❌ 未能匹配到标签 [${tag}]，所有匹配方案均失败！`);
+    
+    console.log(`[ST-Text-Replacer] [Debug] 🎉 成功在消息原文中找到了隐藏的标签 [${tag}]`);
+    
+    // 如果找到了，并且用户表示“不想在消息底部追加绿框，因为已经用正则隐藏了，直接在侧边栏插件里操作即可”
+    // 那么这里就不再操作 DOM。只需要这个消息的数据存在，点击右上角侧边栏按钮时能拉取到就行。
+    
+    // 如果由于某种原因，这段暗线没有被正则隐藏干净，而是渲染出来了，我们就把它直接干掉
+    // 保证阅读体验的整洁
+    const domRegex = new RegExp(`(\\[${tag}\\])([\\s\\S]*?)(\\[\\/${tag}\\])`, 'gi');
+    if (domRegex.test(html)) {
+         let newHtml = html.replace(domRegex, ''); // 直接删掉它在DOM中的显示
+         messageElement.html(newHtml);
     }
 }
 
@@ -329,8 +296,12 @@ function bindEvents() {
     eventSource.on(event_types.MESSAGE_EDITED, handleMessageRender);
     eventSource.on(event_types.MESSAGE_SWIPED, handleMessageRender);
 
+    // CHAT_CHANGED 事件可能在聊天数据完全就绪前触发，或者存在多次触发竞争的情况。
+    // 因此我们需要加入稍微长一点的延迟，并确保获取到的是真正的最新 context。
     eventSource.on(event_types.CHAT_CHANGED, () => {
-        // 清理由于切换角色产生的旧面板数据缓存
+        console.log('[ST-Text-Replacer] [Debug] 捕获到 CHAT_CHANGED 事件，准备清理面板并扫描新聊天...');
+        
+        // 立即执行清理：清理由于切换角色产生的旧面板数据缓存
         $('#st_tr_cards_container').empty();
         $('#st_tr_current_message_id').removeData('mesid').text('未选择消息');
         $('#st_tr_save_cards_btn').prop('disabled', true);
@@ -339,11 +310,13 @@ function bindEvents() {
         $('#st_tr_cards_container').html(`
             <div style="text-align: center; color: var(--SmartThemeBodyColor); opacity: 0.5; margin-top: 50px;">
                 <i class="fa-solid fa-ghost fa-3x" style="margin-bottom: 10px;"></i>
-                <p>暂无暗线数据。<br>请在聊天正文中寻找包含暗线表格的消息，或在设置中打开“启用文本替换”并让AI生成。</p>
+                <p>正在拉取最新数据...</p>
             </div>
         `);
 
+        // 等待 ST 内部完全替换掉聊天数组和 DOM 后再执行扫描
         setTimeout(() => {
+            console.log('[ST-Text-Replacer] [Debug] 开始处理新聊天的 DOM 和面板拉取...');
             $('.mes').each((_, el) => {
                 const messageId = $(el).attr('mesid');
                 if (messageId) {
@@ -351,36 +324,56 @@ function bindEvents() {
                 }
             });
             
-            // 切换聊天后，如果 Drawer 是开着的，主动尝试拉取新聊天的最新暗线
-            if ($('#st_tr_drawer_icon').hasClass('openIcon')) {
-                const settings = getSettings();
-                if (!settings.enabled || !settings.targetTag) return;
-                
-                const context = getContext();
-                const chat = context.chat;
-                if (!chat || chat.length === 0) return;
-                
-                let lastMessageId = -1;
-                let lastTagContent = null;
-                
-                for (let i = chat.length - 1; i >= 0; i--) {
-                    const msg = chat[i];
-                    if (msg && msg.mes) {
-                        const extracted = extractContentByTag(msg.mes, settings.targetTag);
-                        if (extracted) {
-                            lastMessageId = i;
-                            lastTagContent = extracted;
-                            break;
-                        }
+            // 不管 Drawer 是开还是关，只要处于主面板状态，我们就主动尝试拉取新聊天的最新暗线
+            // 因为如果你没关 Drawer 直接切了卡，它依然是开着的
+            const settings = getSettings();
+            if (!settings.enabled || !settings.targetTag) return;
+            
+            const context = getContext();
+            const chat = context.chat;
+            
+            console.log(`[ST-Text-Replacer] [Debug] 当前拿到聊天记录长度: ${chat ? chat.length : 0}`);
+            
+            if (!chat || chat.length === 0) {
+                $('#st_tr_cards_container').html(`
+                    <div style="text-align: center; color: var(--SmartThemeBodyColor); opacity: 0.5; margin-top: 50px;">
+                        <i class="fa-solid fa-ghost fa-3x" style="margin-bottom: 10px;"></i>
+                        <p>暂无暗线数据。<br>请在聊天正文中寻找包含暗线表格的消息，或在设置中打开“启用文本替换”并让AI生成。</p>
+                    </div>
+                `);
+                return;
+            }
+            
+            let lastMessageId = -1;
+            let lastTagContent = null;
+            
+            for (let i = chat.length - 1; i >= 0; i--) {
+                const msg = chat[i];
+                if (msg && msg.mes) {
+                    const extracted = extractContentByTag(msg.mes, settings.targetTag);
+                    if (extracted) {
+                        lastMessageId = i;
+                        lastTagContent = extracted;
+                        console.log(`[ST-Text-Replacer] [Debug] 找到最新暗线消息，ID: ${i}`);
+                        break;
                     }
                 }
-                
-                if (lastMessageId !== -1 && lastTagContent) {
-                    renderCardsToDrawer(lastMessageId, lastTagContent);
-                    bindDrawerCardsSave();
-                }
             }
-        }, 500);
+            
+            if (lastMessageId !== -1 && lastTagContent) {
+                // 如果找到了新的数据，强制刷新面板
+                console.log(`[ST-Text-Replacer] [Debug] 渲染最新的暗线到 Drawer`);
+                renderCardsToDrawer(lastMessageId, lastTagContent);
+                bindDrawerCardsSave();
+            } else {
+                 $('#st_tr_cards_container').html(`
+                    <div style="text-align: center; color: var(--SmartThemeBodyColor); opacity: 0.5; margin-top: 50px;">
+                        <i class="fa-solid fa-ghost fa-3x" style="margin-bottom: 10px;"></i>
+                        <p>暂无暗线数据。<br>请在聊天正文中寻找包含暗线表格的消息，或在设置中打开“启用文本替换”并让AI生成。</p>
+                    </div>
+                `);
+            }
+        }, 1000); // 增加延迟到 1000ms，以确保能拿到切换后的 context.chat 数组
     });
 
     // 初始处理当前已存在的所有消息
@@ -402,100 +395,85 @@ function bindGlobalButtons() {
     $(document).on('click', '#st_tr_drawer_icon', () => {
         // 如果 Drawer 是要打开的（即点之前是 closedIcon）
         if ($('#st_tr_drawer_icon').hasClass('closedIcon')) {
-            const settings = getSettings();
-            if (!settings.enabled || !settings.targetTag) return;
-            
-            const context = getContext();
-            const chat = context.chat;
-            if (!chat || chat.length === 0) return;
-            
-            // 从下往上找最后一条包含目标标签的消息
-            let lastMessageId = -1;
-            let lastTagContent = null;
-            
-            for (let i = chat.length - 1; i >= 0; i--) {
-                const msg = chat[i];
-                if (msg && msg.mes) {
-                    const extracted = extractContentByTag(msg.mes, settings.targetTag);
-                    if (extracted) {
-                        lastMessageId = i;
-                        lastTagContent = extracted;
-                        break;
+            setTimeout(() => {
+                const settings = getSettings();
+                if (!settings.enabled || !settings.targetTag) return;
+                
+                const context = getContext();
+                const chat = context.chat;
+                if (!chat || chat.length === 0) return;
+                
+                // 从下往上找最后一条包含目标标签的消息
+                let lastMessageId = -1;
+                let lastTagContent = null;
+                
+                for (let i = chat.length - 1; i >= 0; i--) {
+                    const msg = chat[i];
+                    if (msg && msg.mes) {
+                        const extracted = extractContentByTag(msg.mes, settings.targetTag);
+                        if (extracted) {
+                            lastMessageId = i;
+                            lastTagContent = extracted;
+                            break;
+                        }
                     }
                 }
-            }
-            
-            if (lastMessageId !== -1 && lastTagContent) {
-                // 判断：如果是空面板（看到幽灵图标），或者是别的角色留下的旧消息 ID（可能数组越界或不匹配）
-                const currentEditedId = $('#st_tr_current_message_id').data('mesid');
-                const isPanelEmpty = $('#st_tr_cards_container .fa-ghost').length > 0;
                 
-                // 为了保险，每次点开都强制刷新为当前角色最新的一条，除非你刚才已经手动点过某条历史消息的"编辑"
-                // 这里我们假设只要 Drawer 被关闭过，再打开就默认看最新的
-                renderCardsToDrawer(lastMessageId, lastTagContent);
-                bindDrawerCardsSave();
-            }
+                if (lastMessageId !== -1 && lastTagContent) {
+                    // 判断：如果是空面板（看到幽灵图标），或者是别的角色留下的旧消息 ID（可能数组越界或不匹配）
+                    const currentEditedId = $('#st_tr_current_message_id').data('mesid');
+                    const isPanelEmpty = $('#st_tr_cards_container .fa-ghost').length > 0;
+                    
+                    // 为了保险，每次点开都强制刷新为当前角色最新的一条，除非你刚才已经手动点过某条历史消息的"编辑"
+                    // 这里我们假设只要 Drawer 被关闭过，再打开就默认看最新的
+                    renderCardsToDrawer(lastMessageId, lastTagContent);
+                    bindDrawerCardsSave();
+                }
+            }, 300); // 给一点点延迟保证 Drawer 完全打开且不跟其他事件冲突
         }
     });
 
-    // 监听手动编辑按钮
-    $(document).on('click', '.st-tr-edit-btn', (e) => {
+    // 在插件侧边栏面板内部绑定“重新推演”按钮事件
+    $(document).on('click', '#st_tr_drawer_reroll_btn', async (e) => {
         e.preventDefault();
-        e.stopPropagation();
         
-        const btn = $(e.currentTarget);
-        const container = btn.closest('.st-tr-container');
-        const messageId = container.data('mesid');
-        
-        if (messageId === undefined) return;
-        
-        const context = getContext();
-        const msg = context.chat[messageId];
-        if (!msg) return;
-        
-        const settings = getSettings();
-        const tagContent = extractContentByTag(msg.mes, settings.targetTag);
-        
-        if (tagContent) {
-            // 打开 Drawer
-            const drawerIcon = $('#st_tr_drawer_icon');
-            if (drawerIcon.hasClass('closedIcon')) {
-                drawerIcon.click(); // 触发打开
-            }
-            
-            // 切换到暗线面板 Tab
-            $('#st_tr_tab_main').click();
-            
-            // 渲染数据
-            renderCardsToDrawer(messageId, tagContent);
-            bindDrawerCardsSave();
-        } else {
-            toastr.error('无法提取该消息的暗线内容');
+        const messageId = $('#st_tr_current_message_id').data('mesid');
+        if (messageId === undefined) {
+            toastr.warning('当前没有选中的消息可供重骰。');
+            return;
         }
-    });
-
-    $(document).on('click', '.st-tr-reroll-btn', async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
         
         const btn = $(e.currentTarget);
-        const container = btn.closest('.st-tr-container');
-        const messageId = container.data('mesid');
-        
-        if (messageId === undefined) return;
         
         // 防止重复点击
         btn.prop('disabled', true);
-        btn.html('<i class="fa-solid fa-spinner fa-spin"></i> 正在生成暗线...');
+        const originalHtml = btn.html();
+        btn.html('<i class="fa-solid fa-spinner fa-spin"></i> 正在推演...');
         btn.css('opacity', '0.7');
         
-        await handleReRoll(messageId);
-        
-        // 成功后，消息会被重渲染，该DOM会被替换掉。
-        // 如果出错没替换掉，我们还原按钮状态：
-        btn.prop('disabled', false);
-        btn.html('<i class="fa-solid fa-dice"></i> 重新推演');
-        btn.css('opacity', '1');
+        try {
+            await handleReRoll(messageId);
+            
+            // 重骰成功后，我们需要立刻从更新后的 msg.mes 里提取新数据，重新渲染 Drawer！
+            const context = getContext();
+            const chat = context.chat;
+            const msg = chat[messageId];
+            if (msg && msg.mes) {
+                const settings = getSettings();
+                const newTagContent = extractContentByTag(msg.mes, settings.targetTag);
+                if (newTagContent) {
+                    renderCardsToDrawer(messageId, newTagContent);
+                    bindDrawerCardsSave();
+                }
+            }
+        } catch (err) {
+             console.error("[ST-Text-Replacer] 重骰失败", err);
+        } finally {
+            // 还原按钮状态
+            btn.prop('disabled', false);
+            btn.html(originalHtml);
+            btn.css('opacity', '1');
+        }
     });
 }
 

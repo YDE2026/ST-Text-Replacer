@@ -84,6 +84,7 @@ export async function createDrawer() {
         const modalContent = await $.get(`${relativeExtensionFolderPath}/assets/settings.html`);
         contentPanel.html(modalContent);
         
+        
         // 加载 CSS
         const link = document.createElement("link");
         link.id = "st-tr-style";
