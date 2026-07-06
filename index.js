@@ -60,7 +60,7 @@ import { extractContentByTag } from './utils/tagProcessor.js';
 /**
  * 渲染可编辑卡片到 Drawer 面板中 (改为表格形式)
  */
-function renderCardsToDrawer(messageId, tagContent) {
+export function renderCardsToDrawer(messageId, tagContent) {
     const tableData = parseMarkdownTable(tagContent);
     const container = $('#st_tr_cards_container');
     const msgLabel = $('#st_tr_current_message_id');
@@ -355,6 +355,44 @@ function bindEvents() {
  * 全局委托事件监听重Roll按钮的点击
  */
 function bindGlobalButtons() {
+    // 监听全局 Drawer 图标点击事件，自动提取最新的一条带标签的消息并渲染
+    $(document).on('click', '#st_tr_drawer_icon', () => {
+        // 如果 Drawer 是要打开的（即点之前是 closedIcon）
+        if ($('#st_tr_drawer_icon').hasClass('closedIcon')) {
+            const settings = getSettings();
+            if (!settings.enabled || !settings.targetTag) return;
+            
+            const context = getContext();
+            const chat = context.chat;
+            if (!chat || chat.length === 0) return;
+            
+            // 从下往上找最后一条包含目标标签的消息
+            let lastMessageId = -1;
+            let lastTagContent = null;
+            
+            for (let i = chat.length - 1; i >= 0; i--) {
+                const msg = chat[i];
+                if (msg && msg.mes) {
+                    const extracted = extractContentByTag(msg.mes, settings.targetTag);
+                    if (extracted) {
+                        lastMessageId = i;
+                        lastTagContent = extracted;
+                        break;
+                    }
+                }
+            }
+            
+            if (lastMessageId !== -1 && lastTagContent) {
+                // 如果当前没有在编辑，或者正在编辑但面板内容为空，则自动加载最新的
+                if ($('#st_tr_cards_container').children().length === 0 || 
+                    $('#st_tr_current_message_id').data('mesid') === undefined) {
+                    renderCardsToDrawer(lastMessageId, lastTagContent);
+                    bindDrawerCardsSave();
+                }
+            }
+        }
+    });
+
     // 监听手动编辑按钮
     $(document).on('click', '.st-tr-edit-btn', (e) => {
         e.preventDefault();
