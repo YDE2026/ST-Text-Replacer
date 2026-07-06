@@ -1,7 +1,7 @@
 {
   "name": "ST-Text-Replacer",
   "display_name": "文本替换优化器",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "author": "Amily-Developer",
   "description": "一个用于在AI生成回复后，对指定标签内的文本进行二次优化和替换的插件，支持自定义API和提示词。",
   "minSillyTavernVersion": "1.10.0",
