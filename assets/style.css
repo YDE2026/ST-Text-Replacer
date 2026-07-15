@@ -23,17 +23,19 @@
     color: #4CAF50; /* Green to distinguish */
 }
 
-/* 强制重写保存按钮样式，对抗 ST 原生类名的污染 */
-#st_tr_save_cards_btn {
-    display: flex !important;
+/* 统一下方操作按钮样式，解决按钮过大问题并对抗 ST 原生类名的污染 */
+.st_tr_action_btn {
+    display: inline-flex !important;
     flex-direction: row !important;
     align-items: center !important;
     justify-content: center !important;
-    gap: 8px !important;
+    gap: 6px !important;
     width: auto !important;
-    min-width: 150px !important;
+    min-width: 100px !important;
     white-space: nowrap !important;
-    padding: 8px 20px !important;
+    padding: 6px 15px !important;
+    font-size: 14px !important;
+    max-width: fit-content !important;
 }
 
 /* ================= 移动端/窄屏端表格防挤压优化 ================= */

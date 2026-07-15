@@ -40,16 +40,11 @@ async function handleReRoll(targetId) {
         // 尝试更新 UI
         if (typeof updateMessageBlock === 'function') {
             updateMessageBlock(targetId, chat[targetId]);
-        } else {
-            console.warn('[ST-Text-Replacer] updateMessageBlock 不可用，尝试触发全局更新事件');
-            eventSource.emit(event_types.chat_updated);
         }
-        
-        // ST重新渲染消息DOM可能存在延迟，且内部不一定触发相关Render事件
-        // 我们手动强制将其重新包裹
-        setTimeout(() => processMessageDOM(targetId), 50);
-        setTimeout(() => processMessageDOM(targetId), 200);
-        setTimeout(() => processMessageDOM(targetId), 500);
+        // 【关键修复】：修改完正文后，必须发出原生的编辑事件。
+        // 否则其他插件（如状态栏正则）会因为 DOM 重绘而失效（变成代码不渲染）。
+        eventSource.emit(event_types.MESSAGE_EDITED, targetId);
+        eventSource.emit(event_types.CHAT_UPDATED);
     }
 }
 
@@ -136,87 +131,6 @@ export function renderCardsToDrawer(messageId, tagContent) {
 }
 
 /**
- * 扫描指定消息DOM，为其包含目标标签的内容包裹上具有独立样式的重Roll框架
- */
-function processMessageDOM(messageId) {
-    const settings = getSettings();
-    if (!settings.enabled || !settings.targetTag) return;
-    
-    const context = getContext();
-    const chat = context.chat;
-    const msg = chat && chat[messageId] ? chat[messageId] : null;
-    const tag = settings.targetTag;
-
-    // 【自动排版整形机制】应对酒馆 AI 忘记加换行导致表格粘连的问题
-    if (msg && msg.mes) {
-        const rawRegex = new RegExp(`(\\[${tag}\\])([\\s\\S]*?)(\\[\\/${tag}\\])`, 'i');
-        const match = msg.mes.match(rawRegex);
-        
-        if (match) {
-            const inner = match[2];
-            // 如果标签和表格内容之间没有充足的换行隔离，Markdown 渲染器会把它们糊在一起，导致后续替换截断 DOM
-            if (!inner.startsWith('\n\n') || !inner.endsWith('\n\n')) {
-                console.log('[ST-Text-Replacer] 发现不良排版的标签，正在自动补全换行符以抢救表格DOM...');
-                msg.mes = msg.mes.replace(rawRegex, `$1\n\n${inner.trim()}\n\n$3`);
-                
-                // 让 ST 重新渲染修复后的规范文本
-                setTimeout(() => {
-                    if (typeof saveChat === 'function') saveChat();
-                    if (typeof updateMessageBlock === 'function') {
-                        updateMessageBlock(messageId, msg);
-                        // 非常关键！因为是我们主动抢救并更新了消息区块，ST此时并不会派发新消息渲染完毕的事件。
-                        // 导致中断的渲染链条无法闭环。所以我们必须在这里手动“踢”它一脚，让它继续渲染绿框！
-                        setTimeout(() => processMessageDOM(messageId), 100);
-                        setTimeout(() => processMessageDOM(messageId), 300);
-                    } else {
-                        eventSource.emit(event_types.chat_updated);
-                    }
-                }, 50);
-                return; // 终止本次错误 DOM 处理，等待 ST 重绘后进入干净的 DOM
-            }
-        }
-    }
-
-    const messageElement = $(`.mes[mesid="${messageId}"] .mes_text`);
-    if (!messageElement.length) return;
-
-    if (messageElement.find('.st-tr-container').length > 0) return;
-
-    let html = messageElement.html();
-    
-    console.log(`\n======================================`);
-    console.log(`[ST-Text-Replacer] [Debug] 正在处理消息ID: ${messageId}`);
-    console.log(`[ST-Text-Replacer] [Debug] 目标标签: [${tag}]`);
-    console.log(`[ST-Text-Replacer] [Debug] 原始 HTML 内容 (请务必仔细检查这里的结构):`);
-    console.log(html);
-    
-    // 如果用户使用了自定义的扩展正则表达式 (比如用 Regex Extension 把 [PHT] 全部隐藏掉了)
-    // 那么在 DOM (messageElement.html()) 里面，是根本找不到 [PHT] 标签的！它已经被酒馆的扩展给过滤没了！
-    // 所以，我们不能仅仅依靠匹配 DOM 来生成绿框，我们需要检查**消息的原始文本 (msg.mes)**
-    
-    const tagRegex = new RegExp(`\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\]`, 'i');
-    const match = msg.mes.match(tagRegex);
-    
-    if (!match) {
-        console.warn(`[ST-Text-Replacer] [Debug] ❌ 消息原文 msg.mes 中未找到标签 [${tag}]`);
-        return;
-    }
-    
-    console.log(`[ST-Text-Replacer] [Debug] 🎉 成功在消息原文中找到了隐藏的标签 [${tag}]`);
-    
-    // 如果找到了，并且用户表示“不想在消息底部追加绿框，因为已经用正则隐藏了，直接在侧边栏插件里操作即可”
-    // 那么这里就不再操作 DOM。只需要这个消息的数据存在，点击右上角侧边栏按钮时能拉取到就行。
-    
-    // 如果由于某种原因，这段暗线没有被正则隐藏干净，而是渲染出来了，我们就把它直接干掉
-    // 保证阅读体验的整洁
-    const domRegex = new RegExp(`(\\[${tag}\\])([\\s\\S]*?)(\\[\\/${tag}\\])`, 'gi');
-    if (domRegex.test(html)) {
-         let newHtml = html.replace(domRegex, ''); // 直接删掉它在DOM中的显示
-         messageElement.html(newHtml);
-    }
-}
-
-/**
  * 绑定 Drawer 面板内的保存逻辑
  */
 function bindDrawerCardsSave() {
@@ -259,7 +173,12 @@ function bindDrawerCardsSave() {
         const originalMes = chat[messageId].mes;
         
         // 强制使用 \n\n 换行，防止 Markdown 解析器把标签当成表格的一部分吞进单元格里
-        const newMes = originalMes.replace(regex, `$1\n\n${newMarkdownTable}\n\n$3`);
+        // 【重要隔离】: 在整个暗线块的最外层也加上 \n\n，防止暗线块与后面的状态栏正则紧贴
+        // 导致 Markdown 解析器把后续的 HTML 代码当成了缩进代码块（即为什么会变成一堆代码而不渲染）
+        let newMes = originalMes.replace(regex, `\n\n$1\n\n${newMarkdownTable}\n\n$3\n\n`);
+        
+        // 清理一下可能出现的过多连续空行
+        newMes = newMes.replace(/\n{4,}/g, '\n\n\n');
         
         chat[messageId].mes = newMes;
         
@@ -269,27 +188,80 @@ function bindDrawerCardsSave() {
         
         if (typeof updateMessageBlock === 'function') {
             updateMessageBlock(messageId, chat[messageId]);
-        } else {
-            eventSource.emit(event_types.chat_updated);
         }
+        // 同理，保存后必须通知其他插件消息被编辑了，让它们恢复状态栏渲染
+        console.log(`[ST-Text-Replacer] [Debug] 准备触发 MESSAGE_EDITED 事件，ID: ${messageId}`);
+        eventSource.emit(event_types.MESSAGE_EDITED, messageId);
         
-        // 强制重新执行 DOM 包裹，防止 ST 的原生更新冲掉了我们的绿框
-        setTimeout(() => processMessageDOM(messageId), 50);
-        setTimeout(() => processMessageDOM(messageId), 200);
-        setTimeout(() => processMessageDOM(messageId), 500);
+        // 删除了 CHAT_UPDATED 避免全局重刷打断其他扩展。如果还需要强刷，可考虑单独的 DOM 延迟触发
+        setTimeout(() => {
+             console.log(`[ST-Text-Replacer] [Debug] 延迟验证消息是否被正确更新，当前内容长度: ${chat[messageId].mes.length}`);
+        }, 500);
         
         toastr.success('暗线数据已保存并更新到正文！');
     });
 }
 
 /**
+ * 检查当前聊天是否有新的暗线数据，并更新侧边栏抽屉面板
+ */
+function updateDrawerIfNewData() {
+    const settings = getSettings();
+    if (!settings.enabled || !settings.targetTag) return;
+    
+    const context = getContext();
+    const chat = context.chat;
+    if (!chat || chat.length === 0) return;
+    
+    let lastMessageId = -1;
+    let lastTagContent = null;
+    
+    // 从下往上找最后一条包含目标标签的消息
+    for (let i = chat.length - 1; i >= 0; i--) {
+        const msg = chat[i];
+        if (msg && msg.mes) {
+            const extracted = extractContentByTag(msg.mes, settings.targetTag);
+            if (extracted) {
+                lastMessageId = i;
+                lastTagContent = extracted;
+                break;
+            }
+        }
+    }
+    
+    const currentEditedId = $('#st_tr_current_message_id').data('mesid');
+    
+    if (lastMessageId !== -1 && lastTagContent) {
+        // 放开限制：只要找到了，就直接刷新。因为即便消息 ID 没变，里头的暗线内容可能在流式生成中变了！
+        console.log(`[ST-Text-Replacer] [Debug] 拉取并更新到面板，ID: ${lastMessageId}`);
+        renderCardsToDrawer(lastMessageId, lastTagContent);
+        bindDrawerCardsSave();
+    } else {
+        // 没有找到任何暗线
+        $('#st_tr_cards_container').html(`
+            <div style="text-align: center; color: var(--SmartThemeBodyColor); opacity: 0.5; margin-top: 50px;">
+                <i class="fa-solid fa-ghost fa-3x" style="margin-bottom: 10px;"></i>
+                <p>暂无暗线数据。<br>请在聊天正文中寻找包含暗线表格的消息，或在设置中打开“启用文本替换”并让AI生成。</p>
+            </div>
+        `);
+    }
+}
+
+/**
  * 绑定所有需要的ST事件，以便在消息渲染时注入UI
  */
 function bindEvents() {
-    const handleMessageRender = (messageId) => {
-        setTimeout(() => processMessageDOM(messageId), 50);
+    // 监听所有消息变动事件，静默更新右侧抽屉面板
+    const handleMessageRender = () => {
+        setTimeout(() => updateDrawerIfNewData(), 500); // 增加延迟，确保文本完全就绪
     };
 
+    // 之前可能没拿到，是因为流式输出时的事件时机不对。
+    // MESSAGE_RECEIVED 是最可靠的“AI 消息最终生成完毕”的事件。
+    eventSource.on(event_types.MESSAGE_RECEIVED, handleMessageRender);
+    eventSource.on(event_types.USER_MESSAGE_SENT, handleMessageRender);
+    
+    // 保留这些作为兜底
     eventSource.on(event_types.USER_MESSAGE_RENDERED, handleMessageRender);
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, handleMessageRender);
     eventSource.on(event_types.MESSAGE_UPDATED, handleMessageRender);
@@ -299,7 +271,7 @@ function bindEvents() {
     // CHAT_CHANGED 事件可能在聊天数据完全就绪前触发，或者存在多次触发竞争的情况。
     // 因此我们需要加入稍微长一点的延迟，并确保获取到的是真正的最新 context。
     eventSource.on(event_types.CHAT_CHANGED, () => {
-        console.log('[ST-Text-Replacer] [Debug] 捕获到 CHAT_CHANGED 事件，准备清理面板并扫描新聊天...');
+        console.log('[ST-Text-Replacer] [Debug] 捕获到 CHAT_CHANGED 事件，准备清理面板并拉取新聊天暗线...');
         
         // 立即执行清理：清理由于切换角色产生的旧面板数据缓存
         $('#st_tr_cards_container').empty();
@@ -314,76 +286,16 @@ function bindEvents() {
             </div>
         `);
 
-        // 等待 ST 内部完全替换掉聊天数组和 DOM 后再执行扫描
+        // 等待 ST 内部完全替换掉聊天数组后执行扫描
         setTimeout(() => {
-            console.log('[ST-Text-Replacer] [Debug] 开始处理新聊天的 DOM 和面板拉取...');
-            $('.mes').each((_, el) => {
-                const messageId = $(el).attr('mesid');
-                if (messageId) {
-                    processMessageDOM(messageId);
-                }
-            });
-            
-            // 不管 Drawer 是开还是关，只要处于主面板状态，我们就主动尝试拉取新聊天的最新暗线
-            // 因为如果你没关 Drawer 直接切了卡，它依然是开着的
-            const settings = getSettings();
-            if (!settings.enabled || !settings.targetTag) return;
-            
-            const context = getContext();
-            const chat = context.chat;
-            
-            console.log(`[ST-Text-Replacer] [Debug] 当前拿到聊天记录长度: ${chat ? chat.length : 0}`);
-            
-            if (!chat || chat.length === 0) {
-                $('#st_tr_cards_container').html(`
-                    <div style="text-align: center; color: var(--SmartThemeBodyColor); opacity: 0.5; margin-top: 50px;">
-                        <i class="fa-solid fa-ghost fa-3x" style="margin-bottom: 10px;"></i>
-                        <p>暂无暗线数据。<br>请在聊天正文中寻找包含暗线表格的消息，或在设置中打开“启用文本替换”并让AI生成。</p>
-                    </div>
-                `);
-                return;
-            }
-            
-            let lastMessageId = -1;
-            let lastTagContent = null;
-            
-            for (let i = chat.length - 1; i >= 0; i--) {
-                const msg = chat[i];
-                if (msg && msg.mes) {
-                    const extracted = extractContentByTag(msg.mes, settings.targetTag);
-                    if (extracted) {
-                        lastMessageId = i;
-                        lastTagContent = extracted;
-                        console.log(`[ST-Text-Replacer] [Debug] 找到最新暗线消息，ID: ${i}`);
-                        break;
-                    }
-                }
-            }
-            
-            if (lastMessageId !== -1 && lastTagContent) {
-                // 如果找到了新的数据，强制刷新面板
-                console.log(`[ST-Text-Replacer] [Debug] 渲染最新的暗线到 Drawer`);
-                renderCardsToDrawer(lastMessageId, lastTagContent);
-                bindDrawerCardsSave();
-            } else {
-                 $('#st_tr_cards_container').html(`
-                    <div style="text-align: center; color: var(--SmartThemeBodyColor); opacity: 0.5; margin-top: 50px;">
-                        <i class="fa-solid fa-ghost fa-3x" style="margin-bottom: 10px;"></i>
-                        <p>暂无暗线数据。<br>请在聊天正文中寻找包含暗线表格的消息，或在设置中打开“启用文本替换”并让AI生成。</p>
-                    </div>
-                `);
-            }
+            console.log('[ST-Text-Replacer] [Debug] 开始处理新聊天的面板拉取...');
+            updateDrawerIfNewData();
         }, 1000); // 增加延迟到 1000ms，以确保能拿到切换后的 context.chat 数组
     });
-
-    // 初始处理当前已存在的所有消息
+    
+    // 初始化时也调用一次
     setTimeout(() => {
-        $('.mes').each((_, el) => {
-            const messageId = $(el).attr('mesid');
-            if (messageId) {
-                processMessageDOM(messageId);
-            }
-        });
+        updateDrawerIfNewData();
     }, 1000);
 }
 
@@ -393,44 +305,12 @@ function bindEvents() {
 function bindGlobalButtons() {
     // 监听全局 Drawer 图标点击事件，自动提取最新的一条带标签的消息并渲染
     $(document).on('click', '#st_tr_drawer_icon', () => {
-        // 如果 Drawer 是要打开的（即点之前是 closedIcon）
-        if ($('#st_tr_drawer_icon').hasClass('closedIcon')) {
-            setTimeout(() => {
-                const settings = getSettings();
-                if (!settings.enabled || !settings.targetTag) return;
-                
-                const context = getContext();
-                const chat = context.chat;
-                if (!chat || chat.length === 0) return;
-                
-                // 从下往上找最后一条包含目标标签的消息
-                let lastMessageId = -1;
-                let lastTagContent = null;
-                
-                for (let i = chat.length - 1; i >= 0; i--) {
-                    const msg = chat[i];
-                    if (msg && msg.mes) {
-                        const extracted = extractContentByTag(msg.mes, settings.targetTag);
-                        if (extracted) {
-                            lastMessageId = i;
-                            lastTagContent = extracted;
-                            break;
-                        }
-                    }
-                }
-                
-                if (lastMessageId !== -1 && lastTagContent) {
-                    // 判断：如果是空面板（看到幽灵图标），或者是别的角色留下的旧消息 ID（可能数组越界或不匹配）
-                    const currentEditedId = $('#st_tr_current_message_id').data('mesid');
-                    const isPanelEmpty = $('#st_tr_cards_container .fa-ghost').length > 0;
-                    
-                    // 为了保险，每次点开都强制刷新为当前角色最新的一条，除非你刚才已经手动点过某条历史消息的"编辑"
-                    // 这里我们假设只要 Drawer 被关闭过，再打开就默认看最新的
-                    renderCardsToDrawer(lastMessageId, lastTagContent);
-                    bindDrawerCardsSave();
-                }
-            }, 300); // 给一点点延迟保证 Drawer 完全打开且不跟其他事件冲突
-        }
+        // 【修复 bug】: 不管 Drawer 的 closedIcon 状态是什么，也不要自己写重复代码
+        // 点击抽屉图标时，无脑延迟一小会执行 updateDrawerIfNewData，保证永远能获取最新
+        setTimeout(() => {
+            console.log(`[ST-Text-Replacer] [Debug] 抽屉图标被点击，强制触发暗线拉取`);
+            updateDrawerIfNewData();
+        }, 150);
     });
 
     // 监听“添加新行”按钮点击事件
